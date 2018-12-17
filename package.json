@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Alexandre Corbel <corbel.alexandre@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "eslint": "./node_modules/.bin/eslint **/*.js --ignore-pattern 'node_modules/'",
+    "zip-prod": "rm -f package.zip && rm -rf \".package\" && rm -rf node_modules && npm install --only=prod && mkdir -p \".package/nodejs/node_modules/$SERVICE-microservice\" && cp -R * \".package/nodejs/node_modules/$SERVICE-microservice\" && cd \".package\" && zip -r ../package.zip * -x \"*.DS_Store\" -x \"*.git*\" -x \".env\" && cd ../ && rm -rf \".package\"",
+    "test": "./node_modules/.bin/mocha"
+  },
+  "dependencies": {
+    "ajv": "^6.6.2",
+    "lambda-log": "^2.0.1",
+    "restify-errors": "^6.1.0"
+  },
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "chai-as-promised": "^7.1.1",
+    "eslint": "^5.5.0",
+    "mocha": "^5.2.0"
+  }
+}
