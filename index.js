@@ -39,13 +39,15 @@ module.exports.sqs = ({ handler, workflow = 'parallel' }) => {
                 return handler(i).catch((err) => { logger.error(err); hasErrors = true; });
             }));
         } else {
+            const handlerError = (err) => {
+                logger.error(err);
+                hasErrors = true;
+                if (workflow === 'series-stopfail') throw new Error('some_records_failed');
+            };
+
             for (const record of Records) {
                 if (record.eventSource !== 'aws:sqs') continue;
-                handler(record).catch((err) => {
-                    logger.error(err);
-                    hasErrors = true;
-                    if (workflow === 'series-stopfail') throw new Error('some_records_failed');
-                });
+                handler(record).catch(handlerError);
             }
         }
         
