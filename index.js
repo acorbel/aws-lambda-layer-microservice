@@ -187,112 +187,36 @@ module.exports.api = ({ routes, prehandler }) => {
 };
 
 function handlerError(err, res, logger) {
-    if (err instanceof Ajv.ValidationError || err.ajv === true) return res({
-        status: 400,
-        errors: parseAjvErrors(err.errors)
-    }, 400);
-    
-    if (err.name && err.name === 'SequelizeValidationError') {
-        logger.error('sequelize', err);
+    if (err instanceof Ajv.ValidationError || err.ajv === true) return res({ status: 400, errors: parseAjvErrors(err.errors) }, 400);
+
+    if (typeof err !== 'object') {
+        logger.error(err); // no need to try catch
         return res({
             status: 500,
             error: 'internal_error',
         }, 500);
-    } 
-
-    if (err.name === 'BadRequestError') {
-        const info = errs.info(err);
-        
-        if (info) {
-            if (info.ajv) return res({
-                status: 400,
-                errors: parseAjvErrors(info && info.ajv.errors),
-                type: info.type || undefined,
-            }, 400);
-
-            if (info.path) return res({
-                status: 400,
-                type: info.type || undefined,
-                errors: [{ 
-                    path: info && info.path, 
-                    error: info && info.code 
-                }]
-            }, 400);
-                
-            if ( info && info.message) return res({
-                status: 400,
-                type: info.type || undefined,
-                message: info && info.message,
-            }, 400);
-                
-            if ( info && info.errors) return res({
-                status: 400,
-                type: info.type || undefined,
-                errors: info.errors,
-            }, 400);
-                
-            if ( info && info.output) return res({
-                status: 400,
-                type: info.type || undefined,
-                ...info.output,
-            }, 400);
-        }
-            
-        return res({
-            status: 400,
-            error: err.message || 'invalid',
-        }, 400);
     }
-
-    if (err.name === 'ForbiddenError') return res({
-        status: 403,
-        error: err.message || 'forbidden',
-    }, 403);
     
-    if (err.name === 'NotFoundError') return res({
-        status: 404,
-        error: err.message || 'not_found',
-    }, 404);
-    
+    if (err.name === 'BadRequestError') {
+        if (!errs.info || errs.info !== 'function') return res({ status: 400, error: err.message || 'invalid' }, 400);
 
-    if (err.name === 'PayloadTooLargeError') return res({
-        status: 413,
-        error: err.message || 'payload_too_large',
-    }, 413);
+        const info = errs.info(err);
+        if (info.ajv && typeof info.ajv === 'object' && info.ajv.errors) return res({ status: 400, errors: parseAjvErrors(info.ajv.errors), type: info.type || undefined }, 400);
+        if (info.path) return res({ status: 400, type: info.type || undefined, errors: [{ path: info.path, error: info.code }]}, 400);
+        if (info.message) return res({ status: 400, type: info.type || undefined, message: info.message }, 400);
+        if (info.errors) return res({ status: 400, type: info.type || undefined, errors: info.errors }, 400);
+        if (info.output) return res({ status: 400, type: info.type || undefined, ...info.output }, 400);
+        return res({ status: 400, error: err.message || 'invalid' }, 400);
+    }
+    if (err.name === 'UnauthorizedError') return res({ status: 401, error: err.message || 'unauthorized' }, 401);
+    if (err.name === 'ForbiddenError') return res({ status: 403, error: err.message || 'forbidden' }, 403);
+    if (err.name === 'NotFoundError') return res({ status: 404, error: err.message || 'not_found' }, 404);
+    if (err.name === 'MethodNotAllowedError') return res({ status: 405, error: err.message || 'method_not_allowed' }, 405);
+    if (err.name === 'ConflictError') return res({ status: 409, error: err.message || 'conflict_error' }, 409);
+    if (err.name === 'PayloadTooLargeError') return res({ status: 413, error: err.message || 'payload_too_large' }, 413);
+    if (err.name === 'TooManyRequestsError') return res({ status: 429, error: err.message || 'too_many_requests' }, 429);
 
-    if (err.name === 'ConflictError') return res({
-        status: 409,
-        error: err.message || 'duplicate',
-    }, 409);
-    
-    if (err.name === 'UnauthorizedError') return res({
-        status: 401,
-        error: 'unauthorized',
-    }, 401);
-    
-    if (err.name === 'MethodNotAllowedError') return res({
-        status: 405,
-        error: 'method_not_allowed',
-    }, 405);
-    
-    if (err.name === 'TooManyRequestsError') return res({
-        status: 429,
-        error: 'throttled',
-    }, 429);
-
-    if (err.name === 'InternalServerError') return res({
-        status: 500,
-        error: 'internal',
-    }, 500);
-    
-    // handle aws throttling errors
-    if (err.code === 'TooManyRequestsException' || err.code === 'ThrottlingException') return res({
-        status: 429,
-        error: 'throttled',
-    }, 429);
-
-    logger.error(err); // no need to try catch
-
+    logger.error(err);
     return res({
         status: 500,
         error: 'internal_error',
