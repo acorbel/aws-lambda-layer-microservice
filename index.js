@@ -120,6 +120,8 @@ module.exports.api = ({ routes, prehandler }) => {
             const pathCompute = `${event.resource} [${event.method}]`;
 
             logger.debug('Handler - Check path', pathCompute);
+            if (!(event.audience in routes)) throw new errs.ForbiddenError();
+
             const mod = routes[event.audience][pathCompute];
             if (!mod) throw new errs.ForbiddenError();
 
