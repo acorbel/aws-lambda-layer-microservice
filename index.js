@@ -202,8 +202,6 @@ function handlerError(err, res, logger) {
     }
     
     if (err.name === 'BadRequestError') {
-        if (!errs.info || errs.info !== 'function') return res({ status: 400, error: err.message || 'invalid' }, 400);
-
         const info = errs.info(err);
         if (info.ajv && typeof info.ajv === 'object' && info.ajv.errors) return res({ status: 400, errors: parseAjvErrors(info.ajv.errors), type: info.type || undefined }, 400);
         if (info.path) return res({ status: 400, type: info.type || undefined, errors: [{ path: info.path, error: info.code }]}, 400);
