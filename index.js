@@ -101,13 +101,19 @@ module.exports.api = ({ routes, prehandler }) => {
         };
 
         try {
+            event.client = {};
 
-            if (event.requestContext) { // api gateway
+            if (event.requestContext) { // api gateway || event.headers is already present
                 event.method = event.httpMethod;
                 event.query = event.queryStringParameters;
                 event.params = event.pathParameters;
                 event.audience = event.stageVariables ? event.stageVariables.audience : null;
                 event.authorizer = event.requestContext.authorizer || {};
+
+                if ('CloudFront-Viewer-Country' in event.headers) event.client.country = event.headers['CloudFront-Viewer-Country'];
+                if ('Host' in event.headers) event.client.host = event.headers.Host;
+                if ('identity' in event.requestContext && 'sourceIp' in event.requestContext.identity) event.client.ip = event.requestContext.identity.sourceIp;
+
                 source = 'api';
             } else {
                 source = 'direct';
