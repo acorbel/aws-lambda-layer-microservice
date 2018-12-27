@@ -9,9 +9,25 @@ let callbackWaitsForEmptyEventLoop = true;
 let autoClean = false;
 let DB;
 
+let apiHandler, sqsHandler, scheduleHandler;
+
 module.exports.logger = logger;
 module.exports.errs = errs;
 module.exports.ajv = ajv;
+
+
+
+const mainHandler = module.exports.handler = (event, context) => {
+    if (callbackWaitsForEmptyEventLoop === false) context.callbackWaitsForEmptyEventLoop = false;
+
+    if ('Records' in event && event.Records.length) {
+        if (event.Records[0].eventSource === 'aws:sqs' && sqsHandler) return sqsHandler(event.Records);
+    }
+    else if ('source' in event && event.source === 'aws.events') {
+        if (scheduleHandler) return scheduleHandler(event);
+    }
+    else if (apiHandler) return apiHandler(event);
+};
 
 module.exports.configure = (config) => {
     if ('debug' in config) logger.options.debug = config.debug;
@@ -23,36 +39,83 @@ module.exports.configure = (config) => {
 };
 
 
-module.exports.sqs = ({ handler, workflow = 'parallel' }) => {
+module.exports.schedule = ({ handler }) => {
+    logger.debug('Handler - Initialize schedule');
+
+    scheduleHandler = async (event) => {
+
+        let db;
+        if (DB) {
+            logger.debug('Handler - Get the database connection');
+            db = await DB({ logger });
+        }
+
+        logger.debug('Handler - Execute');
+        await handler({
+            logger,
+            DB: db,
+            errs,
+            event,
+        });
+    };
+    return mainHandler;
+};
+
+// add auto deletion on success (batch delete if necessary)
+module.exports.sqs = ({ handler, workflow = 'parallel', allOrNothing = false }) => {
     logger.debug('Handler - Initialize sqs');
     
     if (['parallel', 'series', 'series-stopfail'].includes(workflow)) workflow = 'parallel';
 
-    return async ({ Records }, context) => {
-        if (!Records.length) return;
-        if (callbackWaitsForEmptyEventLoop === false) context.callbackWaitsForEmptyEventLoop = false;
+    const AwsSqs = require('aws-sdk/clients/sqs');
+    const SQS = new AwsSqs();
 
+    sqsHandler = async (records) => {
         let hasErrors = false;
+        let toDelete = [];
         if (workflow === 'parallel') {
-            await Promise.all(Records.map(i => {
-                if (i.eventSource !== 'aws:sqs') return;
-                return handler(i).catch((err) => { logger.error(err); hasErrors = true; });
+            await Promise.all(records.map(i => {
+                return handler(i)
+                    .then(() => {
+                        toDelete.push(i.receiptHandle);
+                    })
+                    .catch((err) => { logger.error(err); hasErrors = true; });
             }));
+
+            
         } else {
-            const handlerError = (err) => {
-                logger.error(err);
-                hasErrors = true;
-                if (workflow === 'series-stopfail') throw new Error('some_records_failed');
+            const processRecord = async (record) => {
+                await handler(record)
+                    .then(() => {
+                        toDelete.push(record.receiptHandle);
+                    })
+                    .catch((err) => {
+                        logger.error(err);
+                        hasErrors = true;
+                        if (workflow === 'series-stopfail') throw new Error('some_records_failed');
+                    });
             };
 
-            for (const record of Records) {
-                if (record.eventSource !== 'aws:sqs') continue;
-                handler(record).catch(handlerError);
+            try {
+                for (const record of records) {
+                    await processRecord(record);
+                }
+            } catch (err) {
+                //
             }
         }
-        
+
+        if (toDelete.length && (!allOrNothing || toDelete.length === records.length)) {
+            const parts = records[0].eventSourceARN.split(':');
+            await SQS.deleteMessageBatch({
+                Entries: toDelete.map((item, i) => ({ receiptHandle: item.receiptHandle, Id: i })),
+                QueueUrl: `https://sqs.${parts[3]}.amazonaws.com/${parts[4]}/${parts[5]}`,
+            }).promise();
+        }
+
         if (hasErrors) throw new Error('some_records_failed');
     };
+    return mainHandler;
 };
 
 module.exports.api = ({ routes, prehandler }) => {
@@ -81,8 +144,7 @@ module.exports.api = ({ routes, prehandler }) => {
     }
 
 
-    return async (event, context) => {
-        if (callbackWaitsForEmptyEventLoop === false) context.callbackWaitsForEmptyEventLoop = false;
+    apiHandler = async (event) => {
 
         let source;
 
@@ -194,7 +256,10 @@ module.exports.api = ({ routes, prehandler }) => {
             return handlerError(err, res, logger);
         }
     };
+
+    return mainHandler;
 };
+
 
 function handlerError(err, res, logger) {
     if (err instanceof Ajv.ValidationError || err.ajv === true) return res({ status: 400, errors: parseAjvErrors(err.errors) }, 400);
